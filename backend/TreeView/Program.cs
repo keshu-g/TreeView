@@ -8,7 +8,7 @@ namespace TreeView
         public static void Main(string[] args)
         {
             var builder = WebApplication.CreateBuilder(args);
-
+            builder.WebHost.UseUrls("http://0.0.0.0:7295");
             // Add services to the container.
             builder.Services.AddCors(builder =>
             {
@@ -36,13 +36,43 @@ namespace TreeView
                 app.UseSwaggerUI();
             }
 
-            app.UseHttpsRedirection();
+            
             app.UseCors("AllowAllOrigins");
             app.UseAuthorization();
 
-
             app.MapControllers();
+	    
+	    // Run database migrations at startup
+            using (var scope = app.Services.CreateScope())
+            {
+              var services = scope.ServiceProvider;
+              var dbContext = services.GetRequiredService<ApplicationDbContext>();
+              var logger = services.GetRequiredService<ILogger<Program>>();
 
+              var retries = 10;
+              while (retries > 0)
+              {
+                try
+                {
+                  logger.LogInformation("Attempting database migration...");
+                  dbContext.Database.Migrate();
+                  logger.LogInformation("Database migration completed successfully.");
+                  break;
+                }
+                catch (Exception ex)
+                {
+                  retries--;
+                  logger.LogError($"Database migration failed (retries left: {retries}). Error: {ex.Message}");
+                  if (retries > 0)
+                    Thread.Sleep(5000);
+                }
+              }
+              if (retries == 0)
+              {
+                logger.LogError("Database migration failed after all retries. Application may not function correctly.");
+              }
+            }
+	    
             app.Run();
         }
     }

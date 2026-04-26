@@ -1,8 +1,8 @@
-FROM mcr.microsoft.com/dotnet/sdk:6.0 AS build
+FROM mcr.microsoft.com/dotnet/sdk:8.0 AS build
 
 WORKDIR /app
 
-COPY *.csproj ./
+COPY ./backend/TreeView/*.csproj ./
 
 RUN dotnet restore 
 
@@ -12,10 +12,36 @@ RUN dotnet publish -c Release -o /app/publish
 
 # -------------------------------------
 
-FROM mcr.microsoft.com/dotnet/aspnet:6.0 AS prod
+FROM mcr.microsoft.com/dotnet/aspnet:8.0 AS prod
 
 WORKDIR /app
 
-COPY --from=build /app/publish .
+ARG GIT_SHA=unknown \
+    APP_VERSION=unknown 
 
-CMD ["dotnet", "demo.dll"]
+LABEL oci.opencontainers.images.version = ${APP_VERSION} \
+      oci.opencontainers.image.revision = ${GIT_SHA}
+
+# Install required system packages
+RUN apt-get update && apt-get install -y curl && rm -rf /var/lib/apt/lists/*
+
+# Create non-root user for security
+RUN addgroup --system appusers && \ 
+    adduser --system --ingroup appusers appuser && \
+    chown -R appuser:appusers /app 
+
+COPY --from=build --chown=appuser:appusers /app/publish .
+
+USER appuser
+
+EXPOSE 7295 
+
+# Healthcheck for orchestration
+HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
+    CMD curl -f http://localhost:7295/WeatherForecast || exit 1
+
+ENV ASPNETCORE_ENVIRONMENT=Production \
+    ASPNETCORE_URLS=http://0.0.0.0:7295 \
+    ASPNETCORE_HTTP_PORTS=7295
+
+CMD ["dotnet", "TreeView.dll"]
